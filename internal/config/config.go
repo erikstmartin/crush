@@ -711,6 +711,7 @@ func allToolNames() []string {
 		"multiedit",
 		"lsp_diagnostics",
 		"lsp_references",
+		"lsp_symbols",
 		"lsp_restart",
 		"fetch",
 		"agentic_fetch",

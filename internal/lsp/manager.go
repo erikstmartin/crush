@@ -91,6 +91,40 @@ func (s *Manager) TrackConfigured() {
 	wg.Wait()
 }
 
+func (s *Manager) StartAll(ctx context.Context) {
+	var wg sync.WaitGroup
+	for _, server := range s.manager.GetServers() {
+		wg.Go(func() {
+			s.startServerForWorkspace(ctx, server)
+		})
+	}
+	wg.Wait()
+}
+
+func (s *Manager) startServerForWorkspace(ctx context.Context, server *powernapconfig.ServerConfig) {
+	if len(server.FileTypes) == 0 {
+		return
+	}
+
+	for _, fileType := range server.FileTypes {
+		pattern := fileType
+		if !strings.HasPrefix(pattern, ".") && !strings.Contains(pattern, "*") {
+			pattern = "*." + pattern
+		}
+		if !strings.Contains(pattern, "*") {
+			pattern = "*" + pattern
+		}
+
+		matches, err := filepath.Glob(pattern)
+		if err == nil && len(matches) > 0 {
+			if absPath, err := filepath.Abs(matches[0]); err == nil {
+				s.Start(ctx, absPath)
+				return
+			}
+		}
+	}
+}
+
 // Start starts an LSP server that can handle the given file path.
 // If an appropriate LSP is already running, this is a no-op.
 func (s *Manager) Start(ctx context.Context, path string) {

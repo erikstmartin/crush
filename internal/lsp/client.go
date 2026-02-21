@@ -8,9 +8,11 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unsafe"
 
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/csync"
@@ -545,4 +547,65 @@ func (c *Client) FindReferences(ctx context.Context, filepath string, line, char
 	// NOTE: line and character should be 0-based.
 	// See: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#position
 	return c.client.FindReferences(ctx, filepath, line-1, character-1, includeDeclaration)
+}
+
+// DocumentSymbols returns the symbol hierarchy for a document.
+// This provides an outline/structure of the file showing functions, classes, methods, variables, etc.
+func (c *Client) DocumentSymbols(ctx context.Context, filepath string) ([]protocol.DocumentSymbol, error) {
+	if c == nil {
+		return nil, fmt.Errorf("client is nil")
+	}
+
+	if err := c.OpenFileOnDemand(ctx, filepath); err != nil {
+		return nil, err
+	}
+
+	uri := protocol.URIFromPath(filepath)
+	params := protocol.DocumentSymbolParams{
+		TextDocument: protocol.TextDocumentIdentifier{
+			URI: uri,
+		},
+	}
+
+	var result []protocol.DocumentSymbol
+	if err := callLSPMethod(ctx, c.client, "textDocument/documentSymbol", params, &result); err != nil {
+		return nil, fmt.Errorf("document symbols request failed: %w", err)
+	}
+
+	return result, nil
+}
+
+// WorkspaceSymbols searches for symbols matching a query across the entire workspace.
+// This is useful for finding functions, classes, or other symbols by name.
+func (c *Client) WorkspaceSymbols(ctx context.Context, query string) ([]protocol.SymbolInformation, error) {
+	if c == nil {
+		return nil, fmt.Errorf("client is nil")
+	}
+
+	params := protocol.WorkspaceSymbolParams{
+		Query: query,
+	}
+
+	var result []protocol.SymbolInformation
+	if err := callLSPMethod(ctx, c.client, "workspace/symbol", params, &result); err != nil {
+		return nil, fmt.Errorf("workspace symbols request failed: %w", err)
+	}
+
+	return result, nil
+}
+
+// callLSPMethod calls an LSP method on the powernap client using reflection.
+// This is a temporary workaround until DocumentSymbols and WorkspaceSymbols
+// are added to the powernap Client API.
+func callLSPMethod(ctx context.Context, client *powernap.Client, method string, params, result any) error {
+	clientVal := reflect.ValueOf(client).Elem()
+	connField := clientVal.FieldByName("conn")
+
+	if !connField.IsValid() {
+		return fmt.Errorf("conn field not found in powernap client")
+	}
+
+	conn := reflect.NewAt(connField.Type(), unsafe.Pointer(connField.UnsafeAddr())).Elem().Interface().(*transport.Connection)
+
+	return conn.Call(ctx, method, params, result)
 }
